@@ -43,6 +43,7 @@ class PythonRuntimeSettings final : public QDialog
     void handleEditPluginsPaths();
     void handleEnvComboBoxChange(const QString &envTypeName);
     void handleSelectLocalEnv();
+    void handleCreateVenv();
 
   private:
     Ui_PythonRuntimeSettings *m_ui;

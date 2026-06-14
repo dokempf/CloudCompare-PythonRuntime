@@ -100,13 +100,20 @@
         </layout>
        </widget>
       </item>
-      <item row="2" column="0">
+      <item row="3" column="0">
        <widget class="QCheckBox" name="ignoreVenvCheckBox">
         <property name="toolTip">
          <string>When started from the command line, the runtime will try to pick up and use any current python virtual environment, this however may not work. When checked, any virtual env when launched from the command line will be ignored.</string>
         </property>
         <property name="text">
          <string>Ignore potential virtual env</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QPushButton" name="createVenvBtn">
+        <property name="text">
+         <string>Create virtual environment</string>
         </property>
        </widget>
       </item>

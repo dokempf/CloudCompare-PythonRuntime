@@ -15,7 +15,9 @@
 // #                                                                        #
 // ##########################################################################
 #include "PythonRuntimeSettings.h"
+#include "CreateVenvForm.h"
 #include "Resources.h"
+#include "Utilities.h"
 
 #include <ui_PathVariableEditor.h>
 #include <ui_PythonRuntimeSettings.h>
@@ -29,6 +31,8 @@
 #include <QSettings>
 #include <QStringListModel>
 #include <QtGlobal>
+
+#include <pybind11/pybind11.h>
 
 #include <memory>
 
@@ -168,6 +172,8 @@ PythonRuntimeSettings::PythonRuntimeSettings(QWidget *parent)
             &QPushButton::clicked,
             this,
             &PythonRuntimeSettings::handleSelectLocalEnv);
+    connect(
+        m_ui->createVenvBtn, &QPushButton::clicked, this, &PythonRuntimeSettings::handleCreateVenv);
     restoreSettings();
     m_ui->informationLabel->hide();
 }
@@ -254,6 +260,33 @@ void PythonRuntimeSettings::handleSelectLocalEnv()
             m_ui->localEnvPathLabel->setText(selectedDir);
         }
     }
+}
+
+void PythonRuntimeSettings::handleCreateVenv()
+{
+    CreateVenvForm form(this);
+
+    if (form.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+
+    const QString path = form.path();
+
+    try
+    {
+        const auto createVenvFn = pybind11::module_::import("venv").attr("create");
+        createVenvFn(path);
+    }
+    catch (const std::exception &e)
+    {
+        plgError() << "Failed to create venv: " << e.what();
+        return;
+    }
+
+    m_ui->localEnvPathLabel->setText(path);
+    const int idx = m_ui->envTypeComboBox->findText("Local");
+    m_ui->envTypeComboBox->setCurrentIndex(idx);
 }
 
 QStringList PythonRuntimeSettings::pluginsPaths() const
