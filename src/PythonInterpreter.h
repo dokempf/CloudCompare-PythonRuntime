@@ -21,8 +21,6 @@
 #include "PythonConfig.h"
 #include <QObject>
 
-#include <memory>
-
 #undef slots
 #include <pybind11/eval.h>
 #include <pybind11/pybind11.h>
@@ -59,7 +57,6 @@ class PythonInterpreter final : public QObject
     void initialize(const PythonConfig &config);
     void finalize();
     static bool IsInitialized();
-    const PythonConfigPaths &config() const;
 
     /// Execution functions (and slots)
   public Q_SLOTS:
@@ -85,8 +82,6 @@ class PythonInterpreter final : public QObject
 
   private:
     bool m_isExecuting{false};
-
-    PythonConfigPaths m_config;
 
 #ifdef Q_OS_UNIX
     void *m_libPythonHandle{nullptr};

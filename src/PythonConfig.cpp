@@ -18,21 +18,10 @@
 #include "Utilities.h"
 
 #include <QApplication>
-#include <QDebug>
 #include <QDir>
 #include <QMessageBox>
 #include <QProcess>
-#include <QStringView>
-#include <QVector>
 #include <QtGlobal>
-
-#if !defined(USE_EMBEDDED_MODULES) && defined(Q_OS_WINDOWS)
-static QString WindowsBundledSitePackagesPath()
-{
-    return QDir::listSeparator() + QApplication::applicationDirPath() +
-           "/plugins/Python/Lib/site-packages";
-}
-#endif
 
 //================================================================================
 
@@ -71,71 +60,6 @@ static Version GetPythonExeVersion(QProcess &pythonProcess)
         return Version(splits.at(1));
     }
     return Version{};
-}
-//================================================================================
-
-struct PyVenvCfg
-{
-    PyVenvCfg() = default;
-
-    static PyVenvCfg FromFile(const QString &path);
-
-    QString home{};
-    bool includeSystemSitesPackages{};
-    Version version;
-};
-
-PyVenvCfg PyVenvCfg::FromFile(const QString &path)
-{
-    PyVenvCfg cfg{};
-
-    QFile cfgFile(path);
-    if (cfgFile.open(QIODevice::ReadOnly | QIODevice::Text))
-    {
-        while (!cfgFile.atEnd())
-        {
-            QString line = cfgFile.readLine();
-            QStringList v = line.split("=");
-
-            if (v.size() == 2)
-            {
-                QString name = v[0].simplified();
-                QString value = v[1].simplified();
-
-                if (name == "home")
-                {
-                    cfg.home = value;
-                }
-                else if (name == "include-system-site-packages")
-                {
-                    cfg.includeSystemSitesPackages = (value == "true");
-                }
-                else if (name == "version")
-                {
-                    cfg.version = Version(value);
-                }
-            }
-        }
-    }
-
-    return cfg;
-}
-
-//================================================================================
-
-bool PythonConfigPaths::isSet() const
-{
-    return m_pythonHome != nullptr && m_pythonPath != nullptr;
-}
-
-const wchar_t *PythonConfigPaths::pythonHome() const
-{
-    return m_pythonHome.get();
-}
-
-const wchar_t *PythonConfigPaths::pythonPath() const
-{
-    return m_pythonPath.get();
 }
 
 //================================================================================
@@ -198,102 +122,80 @@ void PythonConfig::initFromLocation(const QString &prefix)
     if (!envRoot.exists())
     {
         m_pythonHome = QString();
-        m_pythonPath = QString();
         m_type = Type::Unknown;
         return;
     }
 
+    m_pythonHome = envRoot.path();
+
     if (envRoot.exists("pyvenv.cfg"))
     {
-        QString pythonExePath = PathToPythonExecutableInEnv(Type::Venv, prefix);
-        initFromPythonExecutable(pythonExePath);
-        if (m_pythonHome.isEmpty() && m_pythonPath.isEmpty())
-        {
-            qDebug() << "Failed to get paths info from python executable at (venv)"
-                     << pythonExePath;
-            initVenv(envRoot.path());
-        }
-        else
-        {
-            m_type = Type::Venv;
-        }
+        m_type = Type::Venv;
     }
     else if (envRoot.exists("conda-meta"))
     {
-        QString pythonExePath = PathToPythonExecutableInEnv(Type::Conda, prefix);
-        initFromPythonExecutable(pythonExePath);
-        if (m_pythonHome.isEmpty() && m_pythonPath.isEmpty())
-        {
-            qDebug() << "Failed to get paths info from python executable at (conda)"
-                     << pythonExePath;
-            initCondaEnv(envRoot.path());
-        }
-        else
-        {
-            m_type = Type::Conda;
-        }
+        m_type = Type::Conda;
     }
     else
-#if defined(Q_OS_MACOS)
     {
-        QString pythonExePath = PathToPythonExecutableInEnv(Type::Unknown, prefix);
-        initFromPythonExecutable(pythonExePath);
-        if (m_pythonHome.isEmpty() && m_pythonPath.isEmpty())
-        {
-            qDebug() << "Failed to get paths info from python executable at (bundled)"
-                     << pythonExePath;
-            initVenv(envRoot.path());
-        }
-        else
-        {
-            m_type = Type::Unknown;
-        }
-    }
-#else
-    {
-        m_pythonHome = envRoot.path();
-        m_pythonPath = QString("%1/DLLs;%1/lib;%1/Lib/site-packages;").arg(m_pythonHome);
         m_type = Type::Unknown;
-
-#if !defined(USE_EMBEDDED_MODULES) && defined(Q_OS_WINDOWS)
-        m_pythonPath.append(WindowsBundledSitePackagesPath());
-#endif
     }
-#endif
 }
 
-void PythonConfig::initCondaEnv(const QString &condaPrefix)
+QString PythonConfig::pythonExecutable() const
 {
-    m_type = Type::Conda;
-    m_pythonHome = condaPrefix;
-    m_pythonPath = QString("%1/DLLs;%1/lib;%1/Lib/site-packages;").arg(condaPrefix);
-
-#if !defined(USE_EMBEDDED_MODULES) && defined(Q_OS_WINDOWS)
-    m_pythonPath.append(WindowsBundledSitePackagesPath());
-#endif
+    return PathToPythonExecutableInEnv(m_type, m_pythonHome);
 }
 
-void PythonConfig::initVenv(const QString &venvPrefix)
+ResolvedPythonPaths PythonConfig::resolvePaths() const
 {
-    PyVenvCfg cfg = PyVenvCfg::FromFile(QString("%1/pyvenv.cfg").arg(venvPrefix));
+    QProcess pythonProcess;
+    preparePythonProcess(pythonProcess);
+    // -I runs the interpreter in isolated mode so the reported values match what
+    // the embedded (also isolated) interpreter should use: standard library +
+    // the environment's site-packages, without user-site or ambient PYTHON*.
+    // The four prefixes are printed first (one per line), then the search paths.
+    pythonProcess.setArguments({"-I",
+                                "-c",
+                                "import sys; "
+                                "print(sys.prefix); print(sys.exec_prefix); "
+                                "print(sys.base_prefix); print(sys.base_exec_prefix); "
+                                "print(chr(10).join(sys.path))"});
+    pythonProcess.start(QIODevice::ReadOnly);
+    pythonProcess.waitForFinished();
 
-    m_type = Type::Venv;
-    m_pythonHome = venvPrefix;
-    m_pythonPath = QString("%1/Lib/site-packages;%3/DLLS;%3/lib").arg(venvPrefix, cfg.home);
-    if (cfg.includeSystemSitesPackages)
+    const QString output = QString::fromUtf8(pythonProcess.readAllStandardOutput());
+
+    QStringList lines;
+    for (const QString &line : output.split('\n'))
     {
-        m_pythonPath.append(QString("%1/Lib/site-packages").arg(cfg.home));
+        const QString trimmed = line.trimmed();
+        if (!trimmed.isEmpty())
+        {
+            lines.append(trimmed);
+        }
     }
 
-#if !defined(USE_EMBEDDED_MODULES) && defined(Q_OS_WINDOWS)
-    m_pythonPath.append(WindowsBundledSitePackagesPath());
-#endif
+    // 4 prefixes + at least one search path.
+    if (lines.size() < 5)
+    {
+        plgWarning() << "Could not query Python paths from " << pythonExecutable() << ": got '"
+                     << output << "'";
+        return {};
+    }
+
+    ResolvedPythonPaths paths;
+    paths.prefix = lines.takeFirst();
+    paths.execPrefix = lines.takeFirst();
+    paths.basePrefix = lines.takeFirst();
+    paths.baseExecPrefix = lines.takeFirst();
+    paths.moduleSearchPaths = lines;
+    return paths;
 }
 
 void PythonConfig::preparePythonProcess(QProcess &pythonProcess) const
 {
-    const QString pythonExePath = PathToPythonExecutableInEnv(type(), m_pythonHome);
-    pythonProcess.setProgram(pythonExePath);
+    pythonProcess.setProgram(pythonExecutable());
 
     // Conda env have SSL related libraries stored in a part that is not
     // in the path of the python exe, we have to add it ourselves.
@@ -305,14 +207,6 @@ void PythonConfig::preparePythonProcess(QProcess &pythonProcess) const
         env.insert("PATH", path);
         pythonProcess.setProcessEnvironment(env);
     }
-}
-
-PythonConfigPaths PythonConfig::pythonCompatiblePaths() const
-{
-    PythonConfigPaths paths;
-    paths.m_pythonHome.reset(QStringToWcharArray(m_pythonHome));
-    paths.m_pythonPath.reset(QStringToWcharArray(m_pythonPath));
-    return paths;
 }
 
 Version PythonConfig::getVersion() const
@@ -366,8 +260,7 @@ PythonConfig PythonConfig::fromContainingEnvironment()
     QString root = qEnvironmentVariable("CONDA_PREFIX");
     if (!root.isEmpty())
     {
-        const QString pythonExePath = PathToPythonExecutableInEnv(Type::Conda, root);
-        config.initFromPythonExecutable(pythonExePath);
+        config.m_pythonHome = root;
         config.m_type = Type::Conda;
         return config;
     }
@@ -375,43 +268,10 @@ PythonConfig PythonConfig::fromContainingEnvironment()
     root = qEnvironmentVariable("VIRTUAL_ENV");
     if (!root.isEmpty())
     {
-        const QString pythonExePath = PathToPythonExecutableInEnv(Type::Venv, root);
-        config.initFromPythonExecutable(pythonExePath);
+        config.m_pythonHome = root;
         config.m_type = Type::Venv;
         return config;
     }
 
     return config;
-}
-
-void PythonConfig::initFromPythonExecutable(const QString &pythonExecutable)
-{
-    m_type = Type::Unknown;
-
-    const QString pythonPathScript = QStringLiteral(
-        "import os;import sys;print(os.pathsep.join(sys.path[1:]));print(sys.prefix, end='')");
-
-    QProcess pythonProcess;
-    pythonProcess.setProgram(pythonExecutable);
-    pythonProcess.setArguments({"-c", pythonPathScript});
-    pythonProcess.start(QIODevice::ReadOnly);
-    pythonProcess.waitForFinished();
-
-    const QString result = QString::fromUtf8(pythonProcess.readAllStandardOutput());
-
-    QStringList pathsAndHome = result.split('\n');
-
-    if (pathsAndHome.size() != 2)
-    {
-        plgWarning() << "'" << result << "' could not be parsed as a list if paths and a home path."
-                     << "Expected 2 strings found " << pathsAndHome.size();
-        return;
-    }
-
-    m_pythonPath = pathsAndHome.takeFirst();
-    m_pythonHome = pathsAndHome.takeFirst();
-
-#if !defined(USE_EMBEDDED_MODULES) && defined(Q_OS_WINDOWS)
-    m_pythonPath.append(WindowsBundledSitePackagesPath());
-#endif
 }

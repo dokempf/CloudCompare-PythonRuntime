@@ -22,6 +22,8 @@
 
 #include <pybind11/embed.h>
 
+#include <memory>
+
 #include <QApplication>
 #include <QDir>
 #include <QListWidgetItem>
@@ -222,40 +224,48 @@ void PythonInterpreter::initialize(const PythonConfig &config)
         //
         // https://www.python.org/dev/peps/pep-0587/
         // https://docs.python.org/3/c-api/init_config.html#init-python-config
-        m_config = config.pythonCompatiblePaths();
-        PyStatus status;
+        const ResolvedPythonPaths paths = config.resolvePaths();
+        if (!paths.isValid())
+        {
+            throw std::runtime_error(
+                "Failed to query the environment's Python interpreter for its configuration");
+        }
 
         PyConfig pyConfig;
         PyConfig_InitPythonConfig(&pyConfig);
         pyConfig.isolated = 1;
 
-        status = PyConfig_SetString(&pyConfig, &pyConfig.home, m_config.pythonHome());
-        if (PyStatus_Exception(status))
+        const auto check = [&pyConfig](PyStatus status)
         {
-            PyConfig_Clear(&pyConfig);
-            throw std::runtime_error(status.err_msg);
+            if (PyStatus_Exception(status))
+            {
+                const std::string message = status.err_msg ? status.err_msg : "unknown error";
+                PyConfig_Clear(&pyConfig);
+                throw std::runtime_error(message);
+            }
+        };
+
+        const auto setString = [&](wchar_t **field, const QString &value)
+        {
+            const std::unique_ptr<wchar_t[]> wide(QStringToWcharArray(value));
+            check(PyConfig_SetString(&pyConfig, field, wide.get()));
+        };
+
+        setString(&pyConfig.prefix, paths.prefix);
+        setString(&pyConfig.exec_prefix, paths.execPrefix);
+        setString(&pyConfig.base_prefix, paths.basePrefix);
+        setString(&pyConfig.base_exec_prefix, paths.baseExecPrefix);
+        setString(&pyConfig.executable, config.pythonExecutable());
+
+        pyConfig.module_search_paths_set = 1;
+        for (const QString &path : paths.moduleSearchPaths)
+        {
+            const std::unique_ptr<wchar_t[]> wide(QStringToWcharArray(path));
+            check(PyWideStringList_Append(&pyConfig.module_search_paths, wide.get()));
         }
 
-        status = PyConfig_SetString(&pyConfig, &pyConfig.pythonpath_env, m_config.pythonPath());
-        if (PyStatus_Exception(status))
-        {
-            PyConfig_Clear(&pyConfig);
-            throw std::runtime_error(status.err_msg);
-        }
-
-        status = PyConfig_Read(&pyConfig);
-        if (PyStatus_Exception(status))
-        {
-            PyConfig_Clear(&pyConfig);
-            throw std::runtime_error(status.err_msg);
-        }
-
-        status = Py_InitializeFromConfig(&pyConfig);
-        if (PyStatus_Exception(status))
-        {
-            PyConfig_Clear(&pyConfig);
-            throw std::runtime_error(status.err_msg);
-        }
+        check(PyConfig_Read(&pyConfig));
+        check(Py_InitializeFromConfig(&pyConfig));
     }
     else
     {
@@ -265,6 +275,15 @@ void PythonInterpreter::initialize(const PythonConfig &config)
     // Make sure this module is imported
     // so that we can later easily construct our consoles.
     py::module::import("ccinternals");
+
+#if !defined(USE_EMBEDDED_MODULES) && defined(Q_OS_WINDOWS)
+    // In non-embedded-modules builds the CloudCompare Python wrappers (pycc,
+    // cccorelib) are installed next to the application rather than inside the
+    // selected environment, so make that location importable.
+    const QString bundledSitePackages =
+        QApplication::applicationDirPath() + "/plugins/Python/Lib/site-packages";
+    py::module::import("sys").attr("path").attr("append")(bundledSitePackages.toStdString());
+#endif
 }
 
 bool PythonInterpreter::IsInitialized()
@@ -292,9 +311,4 @@ void PythonInterpreter::finalize()
 bool PythonInterpreter::isExecuting() const
 {
     return m_isExecuting;
-}
-
-const PythonConfigPaths &PythonInterpreter::config() const
-{
-    return m_config;
 }
