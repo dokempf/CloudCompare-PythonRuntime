@@ -299,9 +299,7 @@ at the float level.
         .def("resetOffset",
              &CCCoreLib::ScalarField::resetOffset,
              "Resets the offset to 0.0 and marks it as 'not explicitly set'.")
-        .def("clear",
-             &CCCoreLib::ScalarField::clear,
-             "Empties the scalar field and resets the offset state.")
+        .def("clear", &CCCoreLib::ScalarField::clear, "Empties the scalar field and resets the offset state.")
         .def("invert",
              &CCCoreLib::ScalarField::invert,
              R"doc(

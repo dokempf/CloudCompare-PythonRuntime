@@ -44,9 +44,8 @@ An edge used by exactly one triangle signals a border/hole; an edge
 shared by more than two triangles signals a non-manifold edge.
 )doc")
         .def(py::init<>())
-        .def_readonly("edgesCount",
-                      &MeshSamplingTools::EdgeConnectivityStats::edgesCount,
-                      "Total number of edges.")
+        .def_readonly(
+            "edgesCount", &MeshSamplingTools::EdgeConnectivityStats::edgesCount, "Total number of edges.")
         .def_readonly("edgesNotShared",
                       &MeshSamplingTools::EdgeConnectivityStats::edgesNotShared,
                       "Edges used by only one triangle (border/hole).")
@@ -86,9 +85,8 @@ check — any non-zero ``edgesNotShared`` means the mesh has holes.
                 MeshSamplingTools::EdgeConnectivityStats stats;
                 if (!MeshSamplingTools::computeMeshEdgesConnectivity(mesh, stats))
                 {
-                    throw std::runtime_error(
-                        "MeshSamplingTools.computeMeshEdgesConnectivity failed "
-                        "(invalid mesh or not enough memory).");
+                    throw std::runtime_error("MeshSamplingTools.computeMeshEdgesConnectivity failed "
+                                             "(invalid mesh or not enough memory).");
                 }
                 return stats;
             },
@@ -108,9 +106,8 @@ computeMeshVolume.
                 MeshSamplingTools::EdgeConnectivityStats stats;
                 if (!MeshSamplingTools::flagMeshVerticesByType(mesh, flags, &stats))
                 {
-                    throw std::runtime_error(
-                        "MeshSamplingTools.flagMeshVerticesByType failed "
-                        "(invalid mesh or not enough memory).");
+                    throw std::runtime_error("MeshSamplingTools.flagMeshVerticesByType failed "
+                                             "(invalid mesh or not enough memory).");
                 }
                 return stats;
             },
@@ -132,17 +129,15 @@ the way.
                CCCoreLib::GenericProgressCallback *progressCb)
             {
                 std::vector<unsigned> triIndices;
-                CCCoreLib::PointCloud *pc = MeshSamplingTools::samplePointsOnMesh(
-                    mesh, samplingDensity, progressCb, &triIndices);
+                CCCoreLib::PointCloud *pc =
+                    MeshSamplingTools::samplePointsOnMesh(mesh, samplingDensity, progressCb, &triIndices);
                 if (!pc)
                 {
-                    throw std::runtime_error(
-                        "MeshSamplingTools.samplePointsOnMesh (by density) failed.");
+                    throw std::runtime_error("MeshSamplingTools.samplePointsOnMesh (by density) failed.");
                 }
                 // take_ownership: CCCoreLib new's a fresh PointCloud; transfer
                 // ownership to Python so it's deleted when the handle is GC'd.
-                return py::make_tuple(py::cast(pc, py::return_value_policy::take_ownership),
-                                      triIndices);
+                return py::make_tuple(py::cast(pc, py::return_value_policy::take_ownership), triIndices);
             },
             "mesh"_a,
             "samplingDensity"_a,
@@ -177,15 +172,13 @@ RuntimeError
                CCCoreLib::GenericProgressCallback *progressCb)
             {
                 std::vector<unsigned> triIndices;
-                CCCoreLib::PointCloud *pc = MeshSamplingTools::samplePointsOnMesh(
-                    mesh, numberOfPoints, progressCb, &triIndices);
+                CCCoreLib::PointCloud *pc =
+                    MeshSamplingTools::samplePointsOnMesh(mesh, numberOfPoints, progressCb, &triIndices);
                 if (!pc)
                 {
-                    throw std::runtime_error(
-                        "MeshSamplingTools.samplePointsOnMesh (by count) failed.");
+                    throw std::runtime_error("MeshSamplingTools.samplePointsOnMesh (by count) failed.");
                 }
-                return py::make_tuple(py::cast(pc, py::return_value_policy::take_ownership),
-                                      triIndices);
+                return py::make_tuple(py::cast(pc, py::return_value_policy::take_ownership), triIndices);
             },
             "mesh"_a,
             "numberOfPoints"_a,
